@@ -4,7 +4,7 @@ const btn = document.getElementById("run");
 let pyodide;
 
 async function init() {
-  out.textContent = "Loading Pyodide...\n";
+  out.textContent = "Loading...\n";
   pyodide = await loadPyodide();
   out.textContent += "Ready.\n";
 }
