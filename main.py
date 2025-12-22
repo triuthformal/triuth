@@ -1,10 +1,3 @@
-# def greet(name="world"):
-#     return f"Hello, {name}!"
-
-# greet("browser")
-
-# print("hi")
-
 def parse_expression(expression, start_ix, mapping):
     """Parse and evaluate process spaces expression in prefix form."""
     token = expression[start_ix]
@@ -123,3 +116,10 @@ expression = 'implies and robust G robust D robust || G D'
 generate_triuth_table(expression)
 
 
+def process(s: str) -> str:
+    s = s.strip()
+    if not s:
+        return "Please type a prefix expression using process spaces operators and any symbols for variables."
+
+    return f"Your expression: {s}\nTriuth table:\n{generate_triuth_table(s)}"
+    
