@@ -13,7 +13,8 @@ btn.addEventListener("click", async () => {
   if (!pyodide) return;
   out.textContent += "\nRunning main.py...\n";
 
-  const code = await (await fetch("./main.py")).text();
+  const code = await (await fetch("./main.py?ts=" + Date.now(), { cache: "no-store" })).text();
+  // const code = await (await fetch("./main.py")).text();
   const result = await pyodide.runPythonAsync(code);
 
   if (result !== undefined) out.textContent += String(result) + "\n";
