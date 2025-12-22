@@ -72,10 +72,19 @@ def parse_expression(expression, start_ix, mapping):
     else:
         return mapping[token], start_ix + 1
 
+import io
+
+# buf = io.StringIO()
+# print("Hello", file=buf)
+# print("World", file=buf)
+
+# s = buf.getvalue()
 
 def generate_triuth_table(expression):
     """Generate a tri-uth table for a process spaces expression."""
-    print(expression)
+    buf = io.StringIO()
+
+    print(expression, file=buf)
     variables = set(token for token in expression.split()
         if not token in ('-', '/', 'robust', '||', '[=', '==', 'oplus', 'meet', 'join', 'lpop',
                          'not', 'and', 'or', 'implies', 'equiv', 'top', 'bot', 'phi'))
@@ -87,7 +96,9 @@ def generate_triuth_table(expression):
         mapping = dict(zip(variables, values))
         expr_copy = expression.split()
         result, _ = parse_expression(expr_copy, 0, mapping)
-        print(mapping, result)
+        print(mapping, result, file=buf)
+
+    return buf.getvalue()
 
 
 # Example usage: verification theorem
