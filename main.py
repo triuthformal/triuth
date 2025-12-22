@@ -3,6 +3,7 @@
 
 # greet("browser")
 
+print("hi")
 
 def parse_expression(expression, start_ix, mapping):
     """Parse and evaluate process spaces expression in prefix form."""
