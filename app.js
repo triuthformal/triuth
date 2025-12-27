@@ -15,7 +15,7 @@ async function init() {
   // Store pyodide globally so button can use it
   window.pyodide = pyodide;
   pyodideReady = true;
-  out.textContent += "Ready. Type something and click Run Python.\n";
+  out.textContent += "Ready. Type something and click Evaluate.\n";
 }
 
 btn.addEventListener("click", async () => {
