@@ -1,25 +1,27 @@
+<!-- llsat.html -->
 <!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Process spaces truth tables</title>
+    <title>LLSAT</title>
+    <style>
+      textarea { width: 100%; max-width: 900px; height: 220px; }
+      pre { white-space: pre-wrap; }
+    </style>
   </head>
+
   <body>
-    <h1>Linear logic SAT solver</h1>
+    <h1>LLSAT</h1>
 
     <label>
-      Paste multiple constraints (one per line):
-      <textarea
-        id="inp_multi"
-        rows="8"
-        cols="60"
-        placeholder="Enter one constraint per line..."
-      ></textarea>
+      Multiple expressions (one per line):
+      <br />
+      <textarea id="inp_multi" placeholder="Enter one expression per line..."></textarea>
     </label>
 
     <br /><br />
 
-    <button id="run">Evaluate</button>
+    <button id="run">Run</button>
 
     <pre id="out"></pre>
 
