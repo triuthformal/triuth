@@ -66,7 +66,8 @@ def process_all(strings: list[str]) -> void:
     stripped = [s.strip() for s in strings]
     for s in stripped:
       ll.add(s)
-      
+    return "test1"
+    
     res = ll.check()
     if res == unsat:
       return "The constraint set is unsatisfiable"
