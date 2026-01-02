@@ -1,100 +1,56 @@
-// Z3 official JS bindings are distributed as "z3-solver". :contentReference[oaicite:1]{index=1}
-//
-// Using esm.sh here keeps the repo tiny for GitHub Pages.
-// If you later want to vendor files locally, you can replace this import with local copies.
-import { init } from "https://esm.sh/z3-solver@4.15.4";
+// ll_z3.js
+// API you want:
+//   process_all(lines: string[]) -> Promise<string>   (returns ONE string)
 
-let _z3 = null; // { Context, Z3 }
+let Z3 = null;
+let z3Mode = "unknown"; // "z3" or "fallback"
 
-async function getZ3() {
-  if (_z3) return _z3;
-
-  // Some environments expect a "global" alias; harmless if already present.
-  if (!globalThis.global) globalThis.global = globalThis;
-
-  const before = "About to initialize Z3 via z3-solver (JS/WASM)...";
-  // Note: init() returns { Context, em } in common examples. :contentReference[oaicite:2]{index=2}
-  const { Context } = await init();
-  const Z3 = Context("main");
-
-  _z3 = { Context, Z3, before };
-  return _z3;
-}
-
-// Prints something before and after it attempts to load Z3.
-export async function warmup_z3() {
-  const start = "WARMUP: starting...\n";
-  const mid = "WARMUP: about to attempt Z3 init...\n";
-  try {
-    const { before } = await getZ3();
-    return start + mid + before + "\nWARMUP: Z3 init finished.";
-  } catch (e) {
-    return (
-      start +
-      mid +
-      "WARMUP: Z3 init FAILED:\n" +
-      (e && e.stack ? e.stack : String(e))
-    );
-  }
-}
-
-// --- Parsing (prefix boolean expressions) ---
+// ---------- Parser for prefix boolean formulas ----------
 
 function tokenize(s) {
-  // Split on whitespace and parentheses, keeping parentheses as tokens
   const out = [];
   let cur = "";
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
+  for (const ch of s) {
     if (ch === "(" || ch === ")") {
-      if (cur.trim().length) out.push(cur.trim());
+      if (cur.trim()) out.push(cur.trim());
       cur = "";
       out.push(ch);
     } else if (/\s/.test(ch)) {
-      if (cur.trim().length) out.push(cur.trim());
+      if (cur.trim()) out.push(cur.trim());
       cur = "";
-    } else {
-      cur += ch;
-    }
+    } else cur += ch;
   }
-  if (cur.trim().length) out.push(cur.trim());
+  if (cur.trim()) out.push(cur.trim());
   return out;
 }
 
-function parseExpr(tokens, idxObj) {
-  // returns AST node
-  if (idxObj.i >= tokens.length) throw new Error("Unexpected end of input");
-
-  const t = tokens[idxObj.i];
+function parseExpr(tokens, idx) {
+  if (idx.i >= tokens.length) throw new Error("Unexpected end of input");
+  const t = tokens[idx.i];
 
   if (t === "(") {
-    idxObj.i++; // consume '('
-    if (idxObj.i >= tokens.length) throw new Error("Expected operator after '('");
-    const op = tokens[idxObj.i++].toLowerCase();
+    idx.i++;
+    if (idx.i >= tokens.length) throw new Error("Expected operator after '('");
+    const op = tokens[idx.i++].toLowerCase();
     const args = [];
-
-    while (idxObj.i < tokens.length && tokens[idxObj.i] !== ")") {
-      args.push(parseExpr(tokens, idxObj));
+    while (idx.i < tokens.length && tokens[idx.i] !== ")") {
+      args.push(parseExpr(tokens, idx));
     }
-    if (idxObj.i >= tokens.length || tokens[idxObj.i] !== ")") {
-      throw new Error("Missing ')'");
-    }
-    idxObj.i++; // consume ')'
+    if (tokens[idx.i] !== ")") throw new Error("Missing ')'");
+    idx.i++;
     return { kind: "app", op, args };
   }
 
   if (t === ")") throw new Error("Unexpected ')'");
-  idxObj.i++; // consume atom
+  idx.i++;
   return { kind: "var", name: t };
 }
 
 function parseLine(s) {
   const tokens = tokenize(s);
-  const idxObj = { i: 0 };
-  const ast = parseExpr(tokens, idxObj);
-  if (idxObj.i !== tokens.length) {
-    throw new Error("Extra tokens after end: " + tokens.slice(idxObj.i).join(" "));
-  }
+  const idx = { i: 0 };
+  const ast = parseExpr(tokens, idx);
+  if (idx.i !== tokens.length) throw new Error("Extra tokens: " + tokens.slice(idx.i).join(" "));
   return ast;
 }
 
@@ -103,89 +59,185 @@ function collectVars(ast, set) {
   else for (const a of ast.args) collectVars(a, set);
 }
 
-function astToZ3(ast, Z3, env) {
-  if (ast.kind === "var") {
-    if (!env[ast.name]) env[ast.name] = Z3.Bool.const(ast.name);
-    return env[ast.name];
-  }
+// ---------- Fallback SAT (pure JS, GitHub Pages-safe) ----------
+// 3-valued eval: true/false/null(unknown). false means "definitely false" under partial assignment.
+function triEval(ast, env) {
+  if (ast.kind === "var") return Object.prototype.hasOwnProperty.call(env, ast.name) ? env[ast.name] : null;
 
   const op = ast.op;
-  const args = ast.args.map((a) => astToZ3(a, Z3, env));
+  const xs = ast.args.map(a => triEval(a, env));
 
   if (op === "not") {
-    if (args.length !== 1) throw new Error("not expects 1 arg");
-    return Z3.Not(args[0]);
+    if (xs.length !== 1) throw new Error("not expects 1 arg");
+    return xs[0] === null ? null : !xs[0];
   }
+
   if (op === "and") {
-    if (args.length < 2) throw new Error("and expects >=2 args");
-    return Z3.And(...args);
+    if (xs.length < 2) throw new Error("and expects >=2 args");
+    if (xs.some(v => v === false)) return false;
+    if (xs.every(v => v === true)) return true;
+    return null;
   }
+
   if (op === "or") {
-    if (args.length < 2) throw new Error("or expects >=2 args");
-    return Z3.Or(...args);
+    if (xs.length < 2) throw new Error("or expects >=2 args");
+    if (xs.some(v => v === true)) return true;
+    if (xs.every(v => v === false)) return false;
+    return null;
   }
+
   if (op === "implies") {
-    if (args.length !== 2) throw new Error("implies expects 2 args");
-    return Z3.Implies(args[0], args[1]);
+    if (xs.length !== 2) throw new Error("implies expects 2 args");
+    // (A -> B) == (not A) or B, in tri-logic
+    const A = xs[0], B = xs[1];
+    const notA = (A === null) ? null : !A;
+    // or(notA, B)
+    if (notA === true || B === true) return true;
+    if (notA === false && B === false) return false;
+    if (notA === false && B === null) return null;
+    if (notA === null && B === false) return null;
+    return null;
   }
 
   throw new Error("Unknown operator: " + op);
 }
 
-// --- Public API: takes list of strings, returns a string ---
+function satSolve(ast) {
+  const vars = Array.from((() => { const s = new Set(); collectVars(ast, s); return s; })()).sort();
+  const env = Object.create(null);
+
+  function dfs(i) {
+    const v = triEval(ast, env);
+    if (v === false) return null;          // prune
+    if (v === true) {
+      // fill remaining vars with false for a complete model
+      for (let j = i; j < vars.length; j++) env[vars[j]] = false;
+      return { ...env };
+    }
+    if (i >= vars.length) return null;
+
+    const name = vars[i];
+
+    env[name] = false;
+    let r = dfs(i + 1);
+    if (r) return r;
+
+    env[name] = true;
+    r = dfs(i + 1);
+    if (r) return r;
+
+    delete env[name];
+    return null;
+  }
+
+  const model = dfs(0);
+  return { sat: model !== null, model, vars };
+}
+
+// ---------- Z3 path (only if it actually initializes) ----------
+
+async function tryInitZ3() {
+  if (Z3) return true;
+
+  // z3-solver code often looks for `global`. Ensure it exists.
+  globalThis.global = globalThis;
+
+  // z3-solver browser init expects globalThis.initZ3 to exist. :contentReference[oaicite:2]{index=2}
+  if (!globalThis.initZ3) {
+    throw new Error(
+      "initZ3 missing. Ensure z3-built.js is loaded before your module."
+    );
+  }
+
+  // Import the browser build explicitly (avoids node build selection weirdness)
+  const { init } = await import("https://esm.sh/z3-solver@4.15.4/build/browser");
+
+  const { Context } = await init();
+  Z3 = Context("main");
+  return true;
+}
+
+function astToZ3(ast, env) {
+  if (ast.kind === "var") {
+    if (!env[ast.name]) env[ast.name] = Z3.Bool.const(ast.name);
+    return env[ast.name];
+  }
+  const op = ast.op;
+  const args = ast.args.map(a => astToZ3(a, env));
+
+  if (op === "not") return Z3.Not(args[0]);
+  if (op === "and") return Z3.And(...args);
+  if (op === "or") return Z3.Or(...args);
+  if (op === "implies") return Z3.Implies(args[0], args[1]);
+  throw new Error("Unknown operator: " + op);
+}
+
+// ---------- Public functions ----------
+
+export async function warmup() {
+  let msg = "Before Z3 init attempt…\n";
+  try {
+    msg += "Attempting Z3 init…\n";
+    await tryInitZ3();
+    z3Mode = "z3";
+    msg += "After Z3 init attempt: SUCCESS (Z3 mode)\n";
+  } catch (e) {
+    z3Mode = "fallback";
+    msg += "After Z3 init attempt: FAILED\n";
+    msg += (e?.stack || String(e)) + "\n";
+    msg += "\nFalling back to pure-JS SAT (works on GitHub Pages).\n";
+  }
+  return msg;
+}
 
 export async function process_all(lines) {
-  const { Z3 } = await getZ3();
+  if (z3Mode === "unknown") {
+    await warmup();
+  }
 
-  const results = [];
-  results.push(`Received ${lines.length} line(s).`);
+  const out = [];
+  out.push(`Mode: ${z3Mode}`);
+  out.push(`Received ${lines.length} line(s).`);
 
-  for (let k = 0; k < lines.length; k++) {
-    const line = lines[k];
-    results.push("");
-    results.push(`Line ${k + 1}: ${line}`);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out.push("");
+    out.push(`Line ${i + 1}: ${line}`);
 
     try {
       const ast = parseLine(line);
 
-      const vars = new Set();
-      collectVars(ast, vars);
+      if (z3Mode === "z3") {
+        const env = Object.create(null);
+        const f = astToZ3(ast, env);
+        const s = new Z3.Solver();
+        s.add(f);
+        const r = s.check();
 
-      const env = Object.create(null);
-      const formula = astToZ3(ast, Z3, env);
+        let rStr = String(r);
+        if (r === Z3.SATISFIABLE) rStr = "sat";
+        else if (r === Z3.UNSATISFIABLE) rStr = "unsat";
+        else if (r === Z3.UNKNOWN) rStr = "unknown";
+        out.push(`Result: ${rStr}`);
 
-      const solver = new Z3.Solver();
-      solver.add(formula);
-
-      const r = solver.check(); // compares with Z3.SATISFIABLE in many examples :contentReference[oaicite:3]{index=3}
-      let rStr = String(r);
-
-      // Normalize common outputs
-      if (r === Z3.SATISFIABLE) rStr = "sat";
-      else if (r === Z3.UNSATISFIABLE) rStr = "unsat";
-      else if (r === Z3.UNKNOWN) rStr = "unknown";
-
-      results.push(`Result: ${rStr}`);
-
-      if (r === Z3.SATISFIABLE) {
-        const model = solver.model();
-        const names = Array.from(vars).sort();
-        if (names.length === 0) {
-          results.push("Model: (no variables)");
-        } else {
-          const assigns = [];
-          for (const nm of names) {
-            const v = env[nm] || Z3.Bool.const(nm);
-            const val = model.eval(v).toString();
-            assigns.push(`${nm}=${val}`);
-          }
-          results.push("Model: " + assigns.join(", "));
+        if (r === Z3.SATISFIABLE) {
+          const m = s.model();
+          const names = Object.keys(env).sort();
+          const assigns = names.map(n => `${n}=${m.eval(env[n]).toString()}`);
+          out.push("Model: " + (assigns.length ? assigns.join(", ") : "(no vars)"));
+        }
+      } else {
+        const { sat, model, vars } = satSolve(ast);
+        out.push(`Result: ${sat ? "sat" : "unsat"}`);
+        if (sat) {
+          const assigns = vars.map(v => `${v}=${model[v] ? "true" : "false"}`);
+          out.push("Model: " + (assigns.length ? assigns.join(", ") : "(no vars)"));
         }
       }
     } catch (e) {
-      results.push("Error: " + (e && e.message ? e.message : String(e)));
+      out.push("Error: " + (e?.message || String(e)));
     }
   }
 
-  return results.join("\n");
+  return out.join("\n");
 }
