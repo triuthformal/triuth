@@ -5,7 +5,7 @@ const inp = document.getElementById("inp");
 let pyodideReady = false;
 
 async function init() {
-  out.textContent = "Loading Pyodide...\n";
+  out.textContent = "Loading...\n";
   const pyodide = await loadPyodide();
 
   // Load main.py into Pyodide (cache-busted so you get the newest file)
