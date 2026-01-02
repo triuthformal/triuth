@@ -1,92 +1,49 @@
-// app_llsat.js
+import { process_all, warmup_z3 } from "./ll_z3.js";
+
 const out = document.getElementById("out");
 const btn = document.getElementById("run");
-const inp = document.getElementById("inp_multi");
+const inp = document.getElementById("inp_lines");
 
-let pyodideReady = false;
+function setOut(s) {
+  out.textContent = String(s);
+}
 
-function log(msg) {
-  out.textContent += msg + "\n";
+function getLines() {
+  // split into list[str], keep non-empty lines (but preserve internal spaces)
+  return inp.value
+    .split("\n")
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
+
+async function init() {
+  setOut("Loading Z3 (JS/WASM)...\n");
+  try {
+    // prints before/after attempts to load Z3
+    const msg = await warmup_z3();
+    setOut(msg + "\nReady. Paste expressions and click Run.\n");
+  } catch (e) {
+    setOut("INIT ERROR:\n" + (e && e.stack ? e.stack : String(e)));
+  }
 }
 
 btn.addEventListener("click", async () => {
-  if (!pyodideReady) {
-    log("Click ignored: still initializing (wait for 'Ready').");
-    return;
-  }
-
+  setOut("Run clicked.\nPreparing input...\n");
   try {
-    out.textContent = "";
+    const lines = getLines();
+    setOut(
+      "Run clicked.\n" +
+        `Lines: ${lines.length}\n` +
+        "Calling process_all(lines)...\n"
+    );
 
-    const lines = inp.value
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const result = await process_all(lines);
 
-    const pyLines = window.pyodide.toPy(lines);
-    window.pyodide.globals.set("user_lines", pyLines);
-
-    const result = await window.pyodide.runPythonAsync(`
-import ll_z3
-res = ll_z3.process_all(user_lines)
-res
-`);
-
-    out.textContent = String(result);
-    pyLines.destroy?.();
+    // display returned string
+    setOut(result);
   } catch (e) {
-    out.textContent = "Run error:\n" + (e?.stack || String(e));
+    setOut("RUN ERROR:\n" + (e && e.stack ? e.stack : String(e)));
   }
 });
-
-async function init() {
-  try {
-    btn.disabled = true;
-
-    out.textContent = "Loading Pyodide...\n";
-    const pyodide = await loadPyodide();
-
-    // show Python print() and errors in <pre>
-    pyodide.setStdout({ batched: (s) => (out.textContent += s) });
-    pyodide.setStderr({ batched: (s) => (out.textContent += s) });
-
-    // >>> BEFORE attempting z3 install
-    log("About to attempt loading/installing Z3 (z3-solver) via micropip...");
-
-    await pyodide.loadPackage("micropip");
-
-    // Attempt install; prints happen inside Python too
-    await pyodide.runPythonAsync(`
-print("PY: Starting micropip.install('z3-solver')...")
-import micropip
-await micropip.install("z3-solver")
-print("PY: Finished micropip.install('z3-solver').")
-`);
-
-    // <<< AFTER attempting z3 install
-    log("Back in JS: Z3 install attempt finished (no exception thrown).");
-
-    // Load ll_z3.py into Pyodide FS so `import ll_z3` works
-    log("Loading ll_z3.py...");
-    const llz3Code = await (
-      await fetch("./ll_z3.py?ts=" + Date.now(), { cache: "no-store" })
-    ).text();
-    pyodide.FS.writeFile("ll_z3.py", llz3Code);
-
-    log("Testing import ll_z3...");
-    await pyodide.runPythonAsync(`
-import ll_z3
-print("PY: Imported ll_z3 successfully.")
-`);
-
-    window.pyodide = pyodide;
-    pyodideReady = true;
-    btn.disabled = false;
-    log("Ready.");
-  } catch (e) {
-    btn.disabled = true;
-    out.textContent += "\nINIT ERROR:\n" + (e?.stack || String(e)) + "\n";
-  }
-}
 
 init();
