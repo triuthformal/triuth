@@ -31,15 +31,15 @@ btn.addEventListener("click", async () => {
   // Pass JS list -> Python
   window.pyodide.globals.set("user_lines", lines);
 
-  // Call your function: app_llsat.process_All(list[str])
+  // Call your function: app_llsat.process_all(list[str])
   // (assumes main.py defines/imports app_llsat)
   const result = await window.pyodide.runPythonAsync(
-    "app_llsat.process_All(user_lines)"
+    "app_llsat.process_all(user_lines)"
   );
 
   // result might be a Python list[str]; show nicely
   if (Array.isArray(result)) {
-    out.textContent = result.join("\n");
+    out.textContent = result; //.join("\n");
   } else {
     out.textContent = String(result);
   }
