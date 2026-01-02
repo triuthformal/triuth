@@ -39,7 +39,7 @@ btn.addEventListener("click", async () => {
 
   // result might be a Python list[str]; show nicely
   if (Array.isArray(result)) {
-    out.textContent = result; //.join("\n");
+    out.textContent = "test2"; //result; //.join("\n");
   } else {
     out.textContent = String(result);
   }
