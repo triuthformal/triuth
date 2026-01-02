@@ -179,10 +179,10 @@ export async function warmup() {
   try {
     msg += "Attempting Z3 init…\n";
     await tryInitZ3();
-    z3Mode = "z3";
+     = "z3";
     msg += "After Z3 init attempt: SUCCESS (Z3 mode)\n";
   } catch (e) {
-    z3Mode = "fallback";
+     = "fallback";
     msg += "After Z3 init attempt: FAILED\n";
     msg += (e?.stack || String(e)) + "\n";
     msg += "\nFalling back to pure-JS SAT (works on GitHub Pages).\n";
@@ -208,24 +208,42 @@ export async function process_all(lines) {
       const ast = parseLine(line);
 
       if (z3Mode === "z3") {
+        // --- inside: if (z3Mode === "z3") { ... } ---
+        
         const env = Object.create(null);
         const f = astToZ3(ast, env);
         const s = new Z3.Solver();
         s.add(f);
-        const r = s.check();
-
+        
+        // check() is async in the browser bindings
+        const r = await s.check();
+        
+        // normalize result (sometimes it's "sat"/"unsat"/"unknown", sometimes constants)
         let rStr = String(r);
-        if (r === Z3.SATISFIABLE) rStr = "sat";
-        else if (r === Z3.UNSATISFIABLE) rStr = "unsat";
-        else if (r === Z3.UNKNOWN) rStr = "unknown";
+        if (r === Z3.SATISFIABLE || rStr === "sat") rStr = "sat";
+        else if (r === Z3.UNSATISFIABLE || rStr === "unsat") rStr = "unsat";
+        else if (r === Z3.UNKNOWN || rStr === "unknown") rStr = "unknown";
+        
         out.push(`Result: ${rStr}`);
-
-        if (r === Z3.SATISFIABLE) {
-          const m = s.model();
+        
+        if (rStr === "sat") {
+          // model() may be sync or async depending on build
+          const mMaybe = s.model();
+          const m = (mMaybe && typeof mMaybe.then === "function") ? await mMaybe : mMaybe;
+        
           const names = Object.keys(env).sort();
-          const assigns = names.map(n => `${n}=${m.eval(env[n]).toString()}`);
+          const assigns = [];
+          for (const n of names) {
+            const v = env[n];
+        
+            const valMaybe = m.eval(v);
+            const val = (valMaybe && typeof valMaybe.then === "function") ? await valMaybe : valMaybe;
+        
+            assigns.push(`${n}=${val.toString()}`);
+          }
           out.push("Model: " + (assigns.length ? assigns.join(", ") : "(no vars)"));
         }
+
       } else {
         const { sat, model, vars } = satSolve(ast);
         out.push(`Result: ${sat ? "sat" : "unsat"}`);
