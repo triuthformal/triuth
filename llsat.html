@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Process spaces truth tables</title>
+  </head>
+  <body>
+    <h1>Linear logic SAT solver</h1>
+
+    <label>
+      Paste multiple constraints (one per line):
+      <textarea
+        id="inp_multi"
+        rows="8"
+        cols="60"
+        placeholder="Enter one constraint per line..."
+      ></textarea>
+    </label>
+
+    <br /><br />
+
+    <button id="run">Evaluate</button>
+
+    <pre id="out"></pre>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+    <script type="module" src="./app_llsat.js"></script>
+  </body>
+</html>
